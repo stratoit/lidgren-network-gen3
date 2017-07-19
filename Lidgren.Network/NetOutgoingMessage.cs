@@ -19,6 +19,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 using System;
 using System.Diagnostics;
+using System.Security.Cryptography;
 
 namespace Lidgren.Network
 {
@@ -62,13 +63,18 @@ namespace Lidgren.Network
 			//  8 bits - NetMessageType
 			//  1 bit  - Fragment?
 			// 15 bits - Sequence number
+			// 160 bits - sha1
 			// 16 bits - Payload length in bits
-			
+            // if frag
+
 			intoBuffer[ptr++] = (byte)m_messageType;
 
 			byte low = (byte)((sequenceNumber << 1) | (m_fragmentGroup == 0 ? 0 : 1));
 			intoBuffer[ptr++] = low;
 			intoBuffer[ptr++] = (byte)(sequenceNumber >> 7);
+
+            int wasPtr_sha1 = ptr;
+            ptr += NetConstants.sha1Length;
 
 			if (m_fragmentGroup == 0)
 			{
@@ -92,7 +98,7 @@ namespace Lidgren.Network
 				// write fragmentation header
 				//
 				ptr = NetFragmentationHelper.WriteHeader(intoBuffer, ptr, m_fragmentGroup, m_fragmentGroupTotalBits, m_fragmentChunkByteSize, m_fragmentChunkNumber);
-				int hdrLen = ptr - wasPtr - 2;
+                int hdrLen = ptr - wasPtr - 2;
 
 				// update length
 				int realBitLength = m_bitLength + (hdrLen * 8);
@@ -106,6 +112,16 @@ namespace Lidgren.Network
 					ptr += byteLen;
 				}
 			}
+
+
+            using (SHA1Managed sha1 = new SHA1Managed())
+            {
+                int offset_data_start = wasPtr_sha1 + NetConstants.sha1Length + 2;
+                int len = ptr - offset_data_start;
+                byte[] hash = sha1.ComputeHash(intoBuffer, offset_data_start, len);
+
+                Buffer.BlockCopy(hash, 0, intoBuffer, wasPtr_sha1, NetConstants.sha1Length);
+            }
 
 			NetException.Assert(ptr > 0);
 			return ptr;

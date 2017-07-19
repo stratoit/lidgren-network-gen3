@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Net.Sockets;
 using System.Collections.Generic;
+using System.Linq;
 
 #if !__NOIPENDPOINT__
 using NetEndPoint = System.Net.IPEndPoint;
@@ -474,7 +475,9 @@ namespace Lidgren.Network
 					//  8 bits - NetMessageType
 					//  1 bit  - Fragment?
 					// 15 bits - Sequence number
+                    // 160 bits - sha1
 					// 16 bits - Payload length in bits
+                    // if frag
 
 					numMessages++;
 
@@ -488,6 +491,14 @@ namespace Lidgren.Network
 
 					if (isFragment)
 						numFragments++;
+
+                    byte[] hash_rcv = null;
+                    if (tp != NetMessageType.Acknowledge)
+                    {
+                        hash_rcv = new byte[NetConstants.sha1Length];
+                        Buffer.BlockCopy(m_receiveBuffer, ptr, hash_rcv, 0, NetConstants.sha1Length);
+                        ptr += NetConstants.sha1Length;
+                    }
 
 					ushort payloadBitLength = (ushort)(m_receiveBuffer[ptr++] | (m_receiveBuffer[ptr++] << 8));
 					int payloadByteLength = NetUtility.BytesToHoldBits(payloadBitLength);
@@ -503,6 +514,20 @@ namespace Lidgren.Network
 						ThrowOrLog("Unexpected NetMessageType: " + tp);
 						return;
 					}
+
+                    if (tp != NetMessageType.Acknowledge)
+                    {
+
+                        using (SHA1Managed sha1 = new SHA1Managed())
+                        {
+                            byte[] hash = sha1.ComputeHash(m_receiveBuffer, ptr, payloadByteLength);
+                            if (!hash.SequenceEqual(hash_rcv))
+                            {
+                                LogWarning("hash code is not equal!!! type : " + tp.ToString());
+                                return;
+                            }
+                        }
+                    }
 
 					try
 					{
